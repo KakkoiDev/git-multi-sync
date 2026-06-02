@@ -85,18 +85,14 @@ gms sync                 # ff-pull behind repos, push ahead repos, report the re
 
 ### Resolve conflicts with an LLM
 
-```sh
-gms sync | claude -p
-```
-
 When stdout is **piped**, the human summary goes to **stderr** (still visible in
 your terminal) and **stdout carries only the resolution prompt** for diverged
-repos: absolute paths, the steps to run, and the likely conflict files. If
-nothing diverged, stdout is empty and the LLM gets nothing to do.
+repos: absolute paths, the steps to run, and the likely conflict files. When
+nothing has diverged, stdout is empty.
 
-Give the LLM an explicit instruction and let it use tools - the piped block is
-its context. In Claude Code's print mode, `-p` only acts when the relevant tools
-are allowed:
+Give the LLM an explicit instruction and allow it tools - the piped block is its
+context. In Claude Code's print mode, `-p` only acts when the relevant tools are
+allowed:
 
 ```sh
 gms sync | claude -p \
@@ -104,6 +100,20 @@ gms sync | claude -p \
    absolute path, run git pull, resolve the conflicts, commit, and push." \
   --allowedTools "Bash,Edit,Read"
 ```
+
+> Pass a prompt argument as above. The bare `gms sync | claude -p` (no prompt)
+> **errors when nothing has diverged** - `claude -p` rejects empty stdin with
+> `Input must be provided...`. To skip the LLM entirely when there is nothing to
+> resolve, guard on the captured output instead:
+>
+> ```sh
+> out=$(gms sync) && [ -n "$out" ] && printf '%s\n' "$out" \
+>   | claude -p "Resolve each diverged repo below: pull, fix, commit, push." \
+>     --allowedTools "Bash,Edit,Read"
+> ```
+>
+> (`gms sync`'s summary still prints to stderr; only the resolution block is
+> captured into `$out`.)
 
 The same pattern works with any assistant CLI that reads a prompt on stdin (just
 swap `claude -p ...` for its equivalent). After it finishes, re-run `gms sync` to
