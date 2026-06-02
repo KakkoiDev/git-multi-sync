@@ -91,8 +91,23 @@ gms sync | claude -p
 
 When stdout is **piped**, the human summary goes to **stderr** (still visible in
 your terminal) and **stdout carries only the resolution prompt** for diverged
-repos: absolute paths, the steps to run, and the likely conflict files. The LLM
-resolves and pushes; you re-run `gms sync` to confirm everything is clean.
+repos: absolute paths, the steps to run, and the likely conflict files. If
+nothing diverged, stdout is empty and the LLM gets nothing to do.
+
+Give the LLM an explicit instruction and let it use tools - the piped block is
+its context. In Claude Code's print mode, `-p` only acts when the relevant tools
+are allowed:
+
+```sh
+gms sync | claude -p \
+  "Each section below is a repo that diverged from origin. For each: cd into the
+   absolute path, run git pull, resolve the conflicts, commit, and push." \
+  --allowedTools "Bash,Edit,Read"
+```
+
+The same pattern works with any assistant CLI that reads a prompt on stdin (just
+swap `claude -p ...` for its equivalent). After it finishes, re-run `gms sync` to
+confirm every repo is clean.
 
 Force the format with `--format human|llm|json` (default `auto` picks `human` on
 a terminal, `llm` when piped). Other flags: `--no-fetch`, `--jobs N`.
