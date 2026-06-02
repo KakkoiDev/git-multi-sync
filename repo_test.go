@@ -32,6 +32,65 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestAddRemove(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	_, repo := newOrigin(t, root, "cfg")
+	// compare against git's own canonical root to dodge /tmp symlink differences
+	repoRoot := gitT(t, repo, "rev-parse", "--show-toplevel")
+	if _, err := initConfig(); err != nil {
+		t.Fatal(err)
+	}
+
+	// add from a subdirectory resolves to the repo root
+	sub := filepath.Join(repo, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := addRepo(sub)
+	if err != nil {
+		t.Fatalf("addRepo(sub): %v", err)
+	}
+	if got != repoRoot {
+		t.Fatalf("addRepo(sub) = %q, want repo root %q", got, repoRoot)
+	}
+
+	// adding the root again dedupes
+	if _, err := addRepo(repo); err != nil {
+		t.Fatalf("addRepo(repo): %v", err)
+	}
+	paths, _ := loadRepos()
+	if len(paths) != 1 || paths[0] != repoRoot {
+		t.Fatalf("loadRepos = %v, want [%s]", paths, repoRoot)
+	}
+
+	// adding a non-repo path fails
+	if _, err := addRepo(home); err == nil {
+		t.Fatal("addRepo(non-repo) succeeded, want error")
+	}
+
+	// remove from the root drops the entry
+	if _, removed, err := removeRepo(sub); err != nil || !removed {
+		t.Fatalf("removeRepo(sub): removed=%v err=%v", removed, err)
+	}
+	if paths, _ := loadRepos(); len(paths) != 0 {
+		t.Fatalf("after remove loadRepos = %v, want empty", paths)
+	}
+
+	// removing again reports not found
+	if _, removed, _ := removeRepo(repo); removed {
+		t.Fatal("second remove reported removed; want not found")
+	}
+}
+
 // --- integration harness against real git, isolated in temp dirs (no network) ---
 
 func gitT(t *testing.T, dir string, args ...string) string {

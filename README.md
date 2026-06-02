@@ -14,17 +14,27 @@ it describes them so an LLM (or you) can fix them.
 
 ## Install
 
-Requires Go and git.
+Requires Go (and git). The installer builds from source.
+
+```sh
+# from a clone
+./install.sh                      # installs to ~/.local/bin
+BINDIR=/usr/local/bin ./install.sh
+
+# remote, once the repo is published somewhere
+curl -fsSL <raw-url>/install.sh | GMS_REPO=https://github.com/you/git-multi-sync bash
+```
+
+Or by hand:
 
 ```sh
 go build -o gms .
-cp gms ~/bin/      # or anywhere on your PATH
+cp gms ~/bin/        # or anywhere on your PATH
 # or: go install .   (installs to $(go env GOPATH)/bin)
 ```
 
-Because the binary is named `git-multi-sync` when installed that way, `git`
-discovers it as a subcommand too: `git multi-sync sync`. Build as `gms` for a
-shorter alias.
+Installed as `git-multi-sync`, `git` discovers it as a subcommand too:
+`git multi-sync sync`. Build as `gms` for a shorter alias.
 
 ## Configure
 
@@ -32,11 +42,16 @@ shorter alias.
 gms init                 # creates ~/.git-multi-sync/repos
 gms add ~/code/project   # track a repo (defaults to the current directory)
 gms add .
+gms remove .             # stop tracking a repo (defaults to the current directory)
 gms list                 # show tracked repos and whether each still exists
 ```
 
+`add` and `remove` resolve any path inside a repo to its root, so running them
+from a subdirectory tracks/untracks the whole repo and never creates duplicates.
+
 `~/.git-multi-sync/repos` is plain text: one absolute path per line, `#` for
 comments, blank lines ignored. Edit it by hand or sync it between machines.
+`remove` preserves your comments and blank lines.
 
 ## Use
 

@@ -76,29 +76,69 @@ func initConfig() (string, error) {
 	return rf, nil
 }
 
-// addRepo appends an absolute path to the config if it is a git repo and not
-// already present. Returns the resolved path.
+// canonicalize returns the git repo root for a path, or the normalized absolute
+// path if it is not inside a repo. Storing the root means a repo added from any
+// subdirectory resolves to the same entry, so add dedupes and remove matches.
+func canonicalize(path string) string {
+	abs := normalize(path)
+	if root, err := gitOut(abs, "rev-parse", "--show-toplevel"); err == nil {
+		return root
+	}
+	return abs
+}
+
+// addRepo records a repo's root path if it is a git repo and not already tracked.
+// Returns the resolved root.
 func addRepo(path string) (string, error) {
 	abs := normalize(path)
-	if !isGitRepo(abs) {
+	root, err := gitOut(abs, "rev-parse", "--show-toplevel")
+	if err != nil {
 		return abs, fmt.Errorf("not a git repository: %s", abs)
 	}
 	if _, err := initConfig(); err != nil {
-		return abs, err
+		return root, err
 	}
 	existing, _ := loadRepos()
 	for _, e := range existing {
-		if e == abs {
-			return abs, nil // already tracked
+		if e == root {
+			return root, nil // already tracked
 		}
 	}
 	f, err := os.OpenFile(reposFile(), os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		return abs, err
+		return root, err
 	}
 	defer f.Close()
-	_, err = f.WriteString(abs + "\n")
-	return abs, err
+	_, err = f.WriteString(root + "\n")
+	return root, err
+}
+
+// removeRepo drops a repo from the config, preserving comments and blank lines.
+// Returns the resolved target and whether a matching entry was found.
+func removeRepo(path string) (string, bool, error) {
+	target := canonicalize(path)
+	data, err := os.ReadFile(reposFile())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return target, false, nil
+		}
+		return target, false, err
+	}
+	lines := strings.Split(string(data), "\n")
+	out := make([]string, 0, len(lines))
+	found := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") && normalize(trimmed) == target {
+			found = true
+			continue
+		}
+		out = append(out, line)
+	}
+	if !found {
+		return target, false, nil
+	}
+	return target, true, os.WriteFile(reposFile(), []byte(strings.Join(out, "\n")), 0o644)
 }
 
 func pathExists(p string) bool {

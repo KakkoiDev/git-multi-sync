@@ -12,6 +12,7 @@ const usageText = `git-multi-sync (gms) - keep many git repos in sync across mac
 Usage:
   gms init              create ~/.git-multi-sync/repos
   gms add [path]        track a repo (default: current directory)
+  gms remove [path]     stop tracking a repo (default: current directory)
   gms list              show tracked repos
   gms status [flags]    fetch and report state of every tracked repo
   gms sync   [flags]    ff-pull behind repos, push ahead repos, report the rest
@@ -40,6 +41,8 @@ func main() {
 		cmdInit()
 	case "add":
 		cmdAdd(os.Args[2:])
+	case "remove", "rm":
+		cmdRemove(os.Args[2:])
 	case "list":
 		cmdList()
 	case "status":
@@ -73,6 +76,22 @@ func cmdAdd(args []string) {
 		fatal("add failed: %v", err)
 	}
 	fmt.Printf("tracking %s\n", abs)
+}
+
+func cmdRemove(args []string) {
+	target := "."
+	if len(args) > 0 {
+		target = args[0]
+	}
+	resolved, removed, err := removeRepo(target)
+	if err != nil {
+		fatal("remove failed: %v", err)
+	}
+	if !removed {
+		fmt.Fprintf(os.Stderr, "not tracked: %s\n", resolved)
+		os.Exit(1)
+	}
+	fmt.Printf("removed %s\n", resolved)
 }
 
 func cmdList() {
