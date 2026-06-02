@@ -147,6 +147,21 @@ on a schedule or shell hook so origin stays canonical:
 */30 * * * * /Users/you/bin/gms sync >/dev/null 2>&1
 ```
 
+## Agent skill
+
+A portable [agentskills.io](https://agentskills.io) skill ships in
+[`skills/git-multi-sync/`](skills/git-multi-sync/SKILL.md). It teaches an agent to
+run `gms status`/`sync`, report what changed, and resolve diverged repos. The
+`SKILL.md` is tool-agnostic - it works with any agent that loads that format.
+
+For Claude Code, symlink it into your skills dir:
+
+```sh
+ln -s "$PWD/skills/git-multi-sync" ~/.claude/skills/git-multi-sync
+```
+
+For other agents (e.g. pi), point their skill loader at the same directory.
+
 ## Develop
 
 ```sh
