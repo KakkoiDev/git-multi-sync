@@ -4,20 +4,22 @@ set -euo pipefail
 # git-multi-sync installer. Builds the `gms` binary from source and installs it.
 #
 #   Local (inside a clone):   ./install.sh
-#   Remote (once published):  curl -fsSL <raw-url>/install.sh | GMS_REPO=<git-url> bash
+#   Remote:                   curl -fsSL https://raw.githubusercontent.com/KakkoiDev/git-multi-sync/main/install.sh | bash
 #
 # Environment:
 #   BINDIR    install directory (default: $HOME/.local/bin)
 #   GMS_REPO  git URL to clone when not run from inside the source tree
+#             (default: https://github.com/KakkoiDev/git-multi-sync)
 
 BINDIR="${BINDIR:-$HOME/.local/bin}"
+GMS_REPO="${GMS_REPO:-https://github.com/KakkoiDev/git-multi-sync}"
 
 command -v go >/dev/null 2>&1 || {
   echo "error: go is required to build gms (https://go.dev/dl/)" >&2
   exit 1
 }
 
-is_src() { [ -f "$1/go.mod" ] && grep -q '^module git-multi-sync$' "$1/go.mod" 2>/dev/null; }
+is_src() { [ -f "$1/go.mod" ] && grep -q 'git-multi-sync$' "$1/go.mod" 2>/dev/null; }
 
 # Locate the source: current dir, then the script's dir, else clone GMS_REPO.
 SRC=""
@@ -33,12 +35,6 @@ if [ -z "$SRC" ]; then
     echo "error: git is required to fetch the source" >&2
     exit 1
   }
-  if [ -z "${GMS_REPO:-}" ]; then
-    echo "error: not in the git-multi-sync source tree and GMS_REPO is unset." >&2
-    echo "       set it to the repo URL, e.g.:" >&2
-    echo "       curl -fsSL <raw-url>/install.sh | GMS_REPO=https://github.com/you/git-multi-sync bash" >&2
-    exit 1
-  fi
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
   echo "cloning $GMS_REPO ..."

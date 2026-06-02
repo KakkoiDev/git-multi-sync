@@ -14,27 +14,22 @@ it describes them so an LLM (or you) can fix them.
 
 ## Install
 
-Requires Go (and git). The installer builds from source.
-
 ```sh
-# from a clone
-./install.sh                      # installs to ~/.local/bin
+# simplest, if you have Go (installs the binary as `git-multi-sync`):
+go install github.com/KakkoiDev/git-multi-sync@latest
+
+# or the installer, which builds and installs it as `gms`:
+curl -fsSL https://raw.githubusercontent.com/KakkoiDev/git-multi-sync/main/install.sh | bash
+./install.sh                       # from a clone -> ~/.local/bin
 BINDIR=/usr/local/bin ./install.sh
 
-# remote, once the repo is published somewhere
-curl -fsSL <raw-url>/install.sh | GMS_REPO=https://github.com/you/git-multi-sync bash
+# or by hand:
+go build -o gms . && cp gms ~/bin/
 ```
 
-Or by hand:
-
-```sh
-go build -o gms .
-cp gms ~/bin/        # or anywhere on your PATH
-# or: go install .   (installs to $(go env GOPATH)/bin)
-```
-
-Installed as `git-multi-sync`, `git` discovers it as a subcommand too:
-`git multi-sync sync`. Build as `gms` for a shorter alias.
+The binary works under either name. Installed as `git-multi-sync`, `git`
+discovers it as a subcommand: `git multi-sync sync`. The installer names it
+`gms` for a shorter alias.
 
 ## Configure
 
@@ -116,3 +111,7 @@ on a schedule or shell hook so origin stays canonical:
 go test ./...    # unit table tests for classify() + git integration harness
 go vet ./...
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
