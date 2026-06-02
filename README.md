@@ -28,8 +28,25 @@ go build -o gms . && cp gms ~/bin/
 ```
 
 The binary works under either name. Installed as `git-multi-sync`, `git`
-discovers it as a subcommand: `git multi-sync sync`. The installer names it
-`gms` for a shorter alias.
+discovers it as a subcommand: `git multi-sync sync`.
+
+### Short name (`gms`)
+
+`go install` names the binary `git-multi-sync` (the module's last path element),
+and it lands in `go env GOPATH`/bin (usually `~/go/bin`) - make sure that dir is
+on your `PATH`. For the shorter `gms`, alias it in your shell rc:
+
+```sh
+alias gms='git-multi-sync'        # ~/.zshrc, ~/.bashrc, ...
+```
+
+or symlink it, so it also works in scripts and non-interactive shells:
+
+```sh
+ln -s "$(go env GOPATH)/bin/git-multi-sync" "$(go env GOPATH)/bin/gms"
+```
+
+The `install.sh` route already installs the binary as `gms`, so no alias needed.
 
 ## Configure
 
