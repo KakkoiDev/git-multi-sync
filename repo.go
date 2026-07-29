@@ -67,6 +67,13 @@ type Repo struct {
 	FetchErr string   // non-empty if the pre-inspection fetch failed
 	Action   string   // what sync did
 	Policy   Policy   // whether this repo may be pushed, and why not
+
+	// HasRemote is only meaningful when State is StateNoUpstream, and separates the
+	// two reasons commits can exist on no server. One is a `git push -u` away; the
+	// other needs a repo creating first. Telling a backup user which is which is
+	// the most actionable thing this tool can say, and it costs one subprocess in
+	// the uncommon case.
+	HasRemote bool
 }
 
 // inspect gathers facts for an already-validated git repo and classifies it.
@@ -111,6 +118,9 @@ func inspect(path string) Repo {
 	})
 	if r.State == StateDiverged {
 		r.Conflict = conflictFiles(path)
+	}
+	if r.State == StateNoUpstream {
+		r.HasRemote = len(remoteNames(path)) > 0
 	}
 	return r
 }

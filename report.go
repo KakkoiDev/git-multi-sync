@@ -63,6 +63,13 @@ func detail(r Repo) string {
 		parts = append(parts, fmt.Sprintf("ahead %d", r.Ahead))
 	case StateDiverged:
 		parts = append(parts, fmt.Sprintf("local %d / remote %d", r.Ahead, r.Behind))
+	case StateNoUpstream:
+		// Which of the two it is decides what the user has to do, so say it.
+		if r.HasRemote {
+			parts = append(parts, "never pushed: git push -u origin "+r.Branch)
+		} else {
+			parts = append(parts, "no remote: this exists only here")
+		}
 	}
 	if r.FetchErr != "" {
 		parts = append(parts, "fetch failed (stale?)")
@@ -166,6 +173,10 @@ type jsonRepo struct {
 	Err      string   `json:"error,omitempty"`
 	FetchErr string   `json:"fetch_error,omitempty"`
 	Action   string   `json:"action,omitempty"`
+	// Only sent for no-upstream repos, where it is the difference between "one
+	// push away" and "needs a remote creating". Additive and omitempty, so an
+	// existing consumer of this JSON is unaffected.
+	HasRemote bool `json:"has_remote,omitempty"`
 }
 
 func writeJSON(w io.Writer, repos []Repo) {
@@ -175,6 +186,7 @@ func writeJSON(w io.Writer, repos []Repo) {
 			Path: r.Path, Branch: r.Branch, State: stateLabel(r.State),
 			Ahead: r.Ahead, Behind: r.Behind, DirtyN: r.DirtyN,
 			Conflict: r.Conflict, Err: r.Err, FetchErr: r.FetchErr, Action: r.Action,
+			HasRemote: r.HasRemote,
 		}
 	}
 	enc := json.NewEncoder(w)

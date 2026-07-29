@@ -238,3 +238,49 @@ func TestIntegration(t *testing.T) {
 		}
 	})
 }
+
+// TestNoUpstreamDistinguishesMissingRemote separates the two ways commits can exist
+// on no server. One is a `git push -u` away; the other has nowhere to go yet. For a
+// tool whose job is backing work up, that is the difference between a one-command
+// fix and needing to create a repo, so the report has to say which.
+func TestNoUpstreamDistinguishesMissingRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	root := t.TempDir()
+
+	// A repo with commits and no remote at all.
+	solo := filepath.Join(root, "solo")
+	gitT(t, root, "init", "-b", "main", solo)
+	writeT(t, filepath.Join(solo, "f.txt"), "x\n")
+	gitT(t, solo, "add", "-A")
+	gitT(t, solo, "commit", "-m", "c1")
+
+	r := examine(solo, false, false, nil)
+	if r.State != StateNoUpstream {
+		t.Fatalf("state = %v, want no-upstream", r.State)
+	}
+	if r.HasRemote {
+		t.Error("a repo with no remote must not report one")
+	}
+	if d := detail(r); !strings.Contains(d, "no remote") {
+		t.Errorf("detail = %q, should say there is no remote", d)
+	}
+
+	// The same repo once a remote exists but the branch was never pushed.
+	gitT(t, solo, "remote", "add", "origin", filepath.Join(root, "somewhere.git"))
+	r = examine(solo, false, false, nil)
+	if r.State != StateNoUpstream {
+		t.Fatalf("state = %v, want no-upstream", r.State)
+	}
+	if !r.HasRemote {
+		t.Error("a repo with an origin must report it")
+	}
+	d := detail(r)
+	if !strings.Contains(d, "push -u") {
+		t.Errorf("detail = %q, should name the command that fixes it", d)
+	}
+	if !strings.Contains(d, "main") {
+		t.Errorf("detail = %q, should name the branch so the command is copy-pasteable", d)
+	}
+}

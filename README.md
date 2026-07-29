@@ -1,22 +1,34 @@
 # git-multi-sync (`gms`)
 
-Keep every git repo on your machine in sync with one command, and hand merge
-conflicts to an LLM by piping the output. Nothing to register: `gms` finds the
-repos itself.
+Keep the projects you work on backed up and in step across every machine, with one
+command. Nothing to register: `gms` finds the repos itself. Merge conflicts are
+described, not resolved, so you can pipe them to an LLM.
 
 ## Why
 
-Heavy agentic coding across multiple machines means losing track of what was
-pushed where: you pull `master` on the laptop only to find the latest work is
-still unpushed on the desktop. That is a **visibility + reliable-push** problem,
-not a merge problem. `gms` makes the state of every repo visible and brings the
-clean ones in line with origin automatically. It never auto-resolves conflicts;
-it describes them so an LLM (or you) can fix them.
+Working across several machines means losing track of what was pushed where: you
+pull `master` on the laptop only to find the latest work is still unpushed on the
+desktop. Worse, some work is on no server at all - a project you started, committed
+to, and never pushed.
+
+That is a **visibility + reliable-push** problem, not a merge problem. `gms` makes
+the state of every repo visible and brings the clean ones in line with origin
+automatically. It never auto-resolves conflicts; it describes them so an LLM (or
+you) can fix them.
 
 The reason it discovers repos rather than tracking a list: a list you maintain by
 hand is a list you forget to add to, and the repos missing from it are exactly the
-ones nobody is watching. A tool for finding stranded work cannot depend on you
-remembering to enrol the place the work stranded.
+ones nobody is watching. A tool for finding work that exists on no server cannot
+depend on you remembering to enrol the place it went missing.
+
+The two states worth acting on are the ones `gms` cannot fix for you:
+
+- **`no-upstream` with a remote configured** - commits exist, `git push -u` was
+  never run. One command from being backed up.
+- **`no-upstream` with no remote at all** - the project exists only on this machine.
+  It needs a repo created before anything can back it up.
+
+Everything else, `gms` handles: behind gets fast-forwarded, ahead gets pushed.
 
 ## Install
 
@@ -77,6 +89,33 @@ from a subdirectory affects the whole repo and never creates duplicates.
 
 **Clean repo → `gms` synced it. Dirty repo → yours to clean.** That is the whole
 model. There is no per-repo or per-owner policy to learn.
+
+### Recommended first setup
+
+Discovery finds every repo in your home directory, which is more than you want to
+watch. Look before you schedule anything:
+
+```sh
+gms list                      # everything in scope
+gms status --no-fetch         # what state it is all in
+```
+
+Then ignore what is not a project you are backing up. Two categories are worth it
+on most machines:
+
+```sh
+gms ignore ~/scratch          # throwaway trees: benchmarks, experiments, notes
+gms ignore ~/.tmux-worktree   # linked worktrees, if you manage their branches yourself
+```
+
+**Ignoring worktrees has a cost, so decide deliberately.** Each checkout syncs only
+its own branch, so pushing a repo's `master` does not cover a worktree sitting on
+`feature/x`. Ignore them and commits on those branches are yours to push. Keep them
+and every worktree becomes a row in every report - on a machine with 47 of them,
+that is the whole report.
+
+Repos you merely cloned to read need no rule: `gms` only pushes a branch that is
+**clean and ahead**, and you are never ahead on a repo you do not commit to.
 
 ### The three files
 
@@ -168,14 +207,20 @@ confused with a repo that is in sync.
 
 ### What `sync` does, per repo
 
-| Repo state            | Action                                    |
-|-----------------------|-------------------------------------------|
-| behind (clean)        | `git pull --ff-only`                      |
-| ahead (clean)         | `git push`                                |
-| up to date            | nothing                                   |
-| diverged              | report only (described for resolution)    |
-| dirty (uncommitted)   | report only, left untouched               |
-| detached / no upstream| report only                               |
+| Repo state              | Action                                              |
+|-------------------------|-----------------------------------------------------|
+| behind (clean)          | `git pull --ff-only`                                |
+| ahead (clean)           | `git push`                                          |
+| up to date              | nothing                                             |
+| diverged                | report only (described for resolution)              |
+| dirty (uncommitted)     | report only, left untouched                         |
+| no upstream, has remote | report only: names the `git push -u` that fixes it  |
+| no upstream, no remote  | report only: this project exists on no server       |
+| detached                | report only                                         |
+
+A **dirty** repo blocks both pull and push, so one left permanently dirty quietly
+stops updating. That is why `gms` keeps reporting it rather than letting you silence
+it: an ignore is keyed on a path, outlives the reason, and hides the pull too.
 
 ### Resolve conflicts with an LLM
 
