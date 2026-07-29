@@ -185,10 +185,11 @@ func TestPushTargetPrefersUpstreamOverOrigin(t *testing.T) {
 	}
 }
 
-// TestPushTargetDoesNotTrustOriginOverBranchRemote is the dangerous inverse of
-// the deer case: origin belongs to the user, but the branch pushes to a third
-// party. Resolving to origin would hand a push authorization to a repo gms never
-// vetted, so the resolved target must be the third party and the policy must deny.
+// TestPushTargetDoesNotTrustOriginOverBranchRemote is the inverse of the deer
+// case: origin belongs to the user, but the branch pushes somewhere else.
+// pushTarget is diagnostic rather than policy, so what this protects is
+// truthfulness - `gms doctor` telling you a push would go to your own repo when
+// git would send it elsewhere is worse than saying nothing.
 func TestPushTargetDoesNotTrustOriginOverBranchRemote(t *testing.T) {
 	skipWithoutGit(t)
 	root := t.TempDir()
@@ -203,11 +204,7 @@ func TestPushTargetDoesNotTrustOriginOverBranchRemote(t *testing.T) {
 		t.Fatalf("pushTarget: %v", err)
 	}
 	if id.Owner != "someone-else" {
-		t.Fatalf("pushTarget owner = %q, want someone-else", id.Owner)
-	}
-	p := evalPolicy(policyInput{Branch: "main", PushTarget: id, Rules: []ownerRule{kakkoiSync}})
-	if p.Push {
-		t.Error("gms must not authorize a push to someone-else just because origin is the user's")
+		t.Errorf("pushTarget owner = %q, want someone-else: reporting origin here would be a lie", id.Owner)
 	}
 }
 

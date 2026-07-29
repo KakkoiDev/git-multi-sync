@@ -193,13 +193,18 @@ func pushRemote(dir string) string {
 }
 
 // pushTarget resolves where `git push` would actually send commits. This is not
-// the same as origin: in a fork checkout, origin can be the upstream project
-// while @{push} points at the user's own fork. Push authority must be decided
-// from this, not from origin, or gms would refuse to push repos the user owns
-// and consider pushing ones they do not.
+// the same as origin: in a fork checkout, origin can be the upstream project while
+// @{push} points at the user's own fork.
 //
-// `git remote get-url --push` is used here (unlike originID) because
-// pushInsteadOf rewrites change where the push really lands.
+// It is diagnostic, not policy. gms does not decide whether to push based on who
+// owns the remote - see evalPolicy for why that filter was removed. What this
+// serves is `gms doctor` answering "where would a push from here actually go",
+// which a tool that pushes on a schedule ought to be able to say. That makes
+// correctness here about truthfulness rather than safety: reporting origin when
+// git would push elsewhere is worse than reporting nothing.
+//
+// `git remote get-url --push` is used here (unlike originID) because pushInsteadOf
+// rewrites change where the push really lands.
 func pushTarget(dir string) (RepoID, error) {
 	remote := pushRemote(dir)
 	if remote == "" {
