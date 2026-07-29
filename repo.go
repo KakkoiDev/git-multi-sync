@@ -66,6 +66,7 @@ type Repo struct {
 	Err      string   // for Missing/Error
 	FetchErr string   // non-empty if the pre-inspection fetch failed
 	Action   string   // what sync did
+	Policy   Policy   // whether this repo may be pushed, and why not
 }
 
 // inspect gathers facts for an already-validated git repo and classifies it.
@@ -139,7 +140,7 @@ func conflictFiles(path string) []string {
 // A fetch failure (e.g. offline) does not fail the repo: classification proceeds
 // against the last-known remote refs and FetchErr is recorded so the report can
 // flag that ahead/behind may be stale.
-func examine(path string, fetch, doSync bool) Repo {
+func examine(path string, fetch, doSync bool, neverPush []string) Repo {
 	if !isGitRepo(path) {
 		r := Repo{Path: path, State: StateMissing}
 		if !pathExists(path) {
@@ -162,6 +163,8 @@ func examine(path string, fetch, doSync bool) Repo {
 
 	r := inspect(path)
 	r.FetchErr = fetchErr
+	// Evaluated after inspect because the decision needs the current branch.
+	r.Policy = evalPolicy(policyInput{Branch: r.Branch, NeverPush: neverPush})
 	if doSync {
 		syncRepo(&r)
 	}
@@ -181,6 +184,12 @@ func syncRepo(r *Repo) {
 			r.Action = "ff-pulled " + plural(r.Behind, "commit")
 		}
 	case StateAhead:
+		// The reason is always shown. A repo that quietly stops pushing looks
+		// exactly like one that is in sync, which is the bug gms exists to prevent.
+		if !r.Policy.Push {
+			r.Action = "not pushed: " + r.Policy.Why
+			return
+		}
 		if out, err := gitRun(r.Path, "push"); err != nil {
 			r.State = StateError
 			r.Err = out

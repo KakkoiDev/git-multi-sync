@@ -42,6 +42,9 @@ func TestAddRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
+	// HOME alone does not isolate config: GMS_CONFIG_DIR overrides it, so a
+	// developer with it set would have this test rewrite their real config.
+	t.Setenv("GMS_CONFIG_DIR", "")
 
 	_, repo := newOrigin(t, root, "cfg")
 	// compare against git's own canonical root to dodge /tmp symlink differences
@@ -145,15 +148,15 @@ func TestIntegration(t *testing.T) {
 		gitT(t, primary, "commit", "-am", "c2")
 		gitT(t, primary, "push")
 
-		r := examine(other, true, false)
+		r := examine(other, true, false, nil)
 		if r.State != StateBehind || r.Behind != 1 {
 			t.Fatalf("got state=%s behind=%d, want behind 1", stateLabel(r.State), r.Behind)
 		}
-		r = examine(other, true, true)
+		r = examine(other, true, true, nil)
 		if r.Action != "ff-pulled 1 commit" {
 			t.Fatalf("action = %q, want ff-pulled 1 commit", r.Action)
 		}
-		if after := examine(other, true, false); after.State != StateUpToDate {
+		if after := examine(other, true, false, nil); after.State != StateUpToDate {
 			t.Fatalf("after pull state=%s, want clean", stateLabel(after.State))
 		}
 	})
@@ -163,15 +166,15 @@ func TestIntegration(t *testing.T) {
 		writeT(t, filepath.Join(primary, "f.txt"), "local\n")
 		gitT(t, primary, "commit", "-am", "local")
 
-		r := examine(primary, true, false)
+		r := examine(primary, true, false, nil)
 		if r.State != StateAhead || r.Ahead != 1 {
 			t.Fatalf("got state=%s ahead=%d, want ahead 1", stateLabel(r.State), r.Ahead)
 		}
-		r = examine(primary, true, true)
+		r = examine(primary, true, true, nil)
 		if r.Action != "pushed 1 commit" {
 			t.Fatalf("action = %q, want pushed 1 commit", r.Action)
 		}
-		if after := examine(primary, true, false); after.State != StateUpToDate {
+		if after := examine(primary, true, false, nil); after.State != StateUpToDate {
 			t.Fatalf("after push state=%s, want clean", stateLabel(after.State))
 		}
 	})
@@ -188,7 +191,7 @@ func TestIntegration(t *testing.T) {
 		gitT(t, primary, "commit", "-am", "a-change")
 		gitT(t, primary, "push")
 
-		r := examine(other, true, true)
+		r := examine(other, true, true, nil)
 		if r.State != StateDiverged {
 			t.Fatalf("state = %s, want DIVERGED", stateLabel(r.State))
 		}
@@ -199,7 +202,7 @@ func TestIntegration(t *testing.T) {
 			t.Fatalf("conflict files = %v, want [f.txt]", r.Conflict)
 		}
 		// still diverged after sync: nothing was merged or pushed
-		if after := examine(other, true, false); after.State != StateDiverged {
+		if after := examine(other, true, false, nil); after.State != StateDiverged {
 			t.Fatalf("after sync state=%s, want still DIVERGED", stateLabel(after.State))
 		}
 	})
@@ -208,7 +211,7 @@ func TestIntegration(t *testing.T) {
 		_, primary := newOrigin(t, root, "dirty")
 		writeT(t, filepath.Join(primary, "f.txt"), "uncommitted\n")
 
-		r := examine(primary, true, true)
+		r := examine(primary, true, true, nil)
 		if r.State != StateDirty || r.DirtyN != 1 {
 			t.Fatalf("got state=%s dirty=%d, want DIRTY 1", stateLabel(r.State), r.DirtyN)
 		}
@@ -224,13 +227,13 @@ func TestIntegration(t *testing.T) {
 	t.Run("no upstream", func(t *testing.T) {
 		_, primary := newOrigin(t, root, "noup")
 		gitT(t, primary, "checkout", "-b", "feature")
-		if r := examine(primary, true, false); r.State != StateNoUpstream {
+		if r := examine(primary, true, false, nil); r.State != StateNoUpstream {
 			t.Fatalf("state = %s, want no-upstream", stateLabel(r.State))
 		}
 	})
 
 	t.Run("missing path", func(t *testing.T) {
-		if r := examine(filepath.Join(root, "nope"), true, false); r.State != StateMissing {
+		if r := examine(filepath.Join(root, "nope"), true, false, nil); r.State != StateMissing {
 			t.Fatalf("state = %s, want MISSING", stateLabel(r.State))
 		}
 	})

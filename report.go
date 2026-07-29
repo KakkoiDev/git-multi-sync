@@ -86,10 +86,34 @@ func shortPath(p string) string {
 	return p
 }
 
+// Column caps for the human table. Without them one long entry sets the width for
+// every row: a worktree named after a ticket title runs past 100 characters on its
+// own, and tabwriter pads every other line to match.
+const (
+	pathWidth   = 52
+	branchWidth = 28
+)
+
+// elide shortens s to at most max characters by cutting the middle and keeping
+// both ends. The tail is kept deliberately: worktree paths and branch names are
+// distinguished by their last segment, so truncating the end would render
+// different rows identical.
+func elide(s string, max int) string {
+	r := []rune(s)
+	if max < 8 || len(r) <= max {
+		return s
+	}
+	end := (max - 1) * 2 / 3
+	start := max - 1 - end
+	return string(r[:start]) + "…" + string(r[len(r)-end:])
+}
+
 func writeHuman(w io.Writer, repos []Repo) {
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
 	for _, r := range repos {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", shortPath(r.Path), r.Branch, stateLabel(r.State), detail(r))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+			elide(shortPath(r.Path), pathWidth), elide(r.Branch, branchWidth),
+			stateLabel(r.State), detail(r))
 	}
 	tw.Flush()
 }

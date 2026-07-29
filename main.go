@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"sort"
 	"text/tabwriter"
 )
 
@@ -23,12 +22,15 @@ func cmdInit(c *command, args []string) int {
 	if _, code := parseFlags(c, args, nil); code != flagsOK {
 		return code
 	}
-	rf, err := initConfig()
+	dir, err := initConfig()
 	if err != nil {
 		return errf("init failed: %v", err)
 	}
-	fmt.Printf("config ready: %s\n", rf)
-	fmt.Println("add repos with `gms add <path>` or by editing that file.")
+	fmt.Printf("config ready: %s\n", shortPath(dir))
+	fmt.Println("gms finds repos on its own - there is nothing to register.")
+	fmt.Println("  gms doctor            what was found, and what was skipped")
+	fmt.Println("  gms ignore <glob>     leave some of it alone")
+	fmt.Println("  gms add <path>        force one in, overriding any ignore")
 	return 0
 }
 
@@ -63,30 +65,51 @@ func cmdRemove(c *command, args []string) int {
 }
 
 func cmdList(c *command, args []string) int {
-	if _, code := parseFlags(c, args, nil); code != flagsOK {
+	var skipped *bool
+	var depth *int
+	if _, code := parseFlags(c, args, func(fs *flag.FlagSet) {
+		skipped = fs.Bool("skipped", false, "list the repos that were excluded, and why")
+		depth = fs.Int("depth", defaultMaxDepth, "how far below home to look for repos")
+	}); code != flagsOK {
 		return code
 	}
-	paths, err := loadRepos()
+
+	cfg, err := loadConfig()
 	if err != nil {
-		return errf("cannot read config: %v (run `gms init`)", err)
+		return errf("%v", err)
 	}
-	if len(paths) == 0 {
-		fmt.Println("no repos tracked. add one with `gms add <path>`.")
+	root, err := os.UserHomeDir()
+	if err != nil {
+		return errf("cannot determine home directory: %v", err)
+	}
+	sel, skip, _ := selectRepos(root, cfg, *depth)
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	if *skipped {
+		for _, s := range skip {
+			fmt.Fprintf(tw, "%s\t%s\n", elide(shortPath(s.Path), pathWidth), s.Reason)
+		}
+		tw.Flush()
+		fmt.Printf("%s skipped\n", plural(len(skip), "repo"))
 		return 0
 	}
-	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	for _, p := range paths {
-		mark := "ok"
-		if !isGitRepo(p) {
-			if pathExists(p) {
+	for _, s := range sel {
+		note := s.Kind.String()
+		if s.Pinned {
+			note = "pinned"
+		}
+		mark := ""
+		if !isGitRepo(s.Path) {
+			if pathExists(s.Path) {
 				mark = "not-a-repo"
 			} else {
 				mark = "MISSING"
 			}
 		}
-		fmt.Fprintf(tw, "%s\t%s\n", shortPath(p), mark)
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", elide(shortPath(s.Path), pathWidth), note, mark)
 	}
 	tw.Flush()
+	fmt.Printf("%s synced, %d skipped (gms list --skipped)\n", plural(len(sel), "repo"), len(skip))
 	return 0
 }
 
@@ -97,26 +120,35 @@ func cmdSync(c *command, args []string) int   { return run(c, args, true) }
 // emit. doSync toggles whether the safe actions are performed.
 func run(c *command, args []string, doSync bool) int {
 	var cf *commonFlags
-	_, code := parseFlags(c, args, func(fs *flag.FlagSet) { cf = addCommonFlags(fs) })
+	var depth *int
+	_, code := parseFlags(c, args, func(fs *flag.FlagSet) {
+		cf = addCommonFlags(fs)
+		depth = fs.Int("depth", defaultMaxDepth, "how far below home to look for repos")
+	})
 	if code != flagsOK {
 		return code
 	}
 
-	paths, err := loadRepos()
+	cfg, err := loadConfig()
 	if err != nil {
-		return errf("cannot read config: %v (run `gms init`)", err)
+		return errf("%v", err)
 	}
-	if len(paths) == 0 {
-		fmt.Fprintln(os.Stderr, "no repos tracked. add one with `gms add <path>`.")
+	root, err := os.UserHomeDir()
+	if err != nil {
+		return errf("cannot determine home directory: %v", err)
+	}
+
+	sel, _, _ := selectRepos(root, cfg, *depth)
+	if len(sel) == 0 {
+		fmt.Fprintln(os.Stderr, "no repos found. run `gms doctor` to see what was scanned.")
 		return 0
 	}
 
-	// fanOut returns results index-aligned with its input, so sorting the paths
-	// here is what makes the report deterministic.
-	sort.Strings(paths)
+	// selectRepos returns a sorted set and fanOut is index-aligned with its input,
+	// which is what makes the report deterministic.
 	fetch := !*cf.noFetch
-	repos := fanOut(paths, *cf.jobs, func(p string) Repo {
-		return examine(p, fetch, doSync)
+	repos := fanOut(selectedPaths(sel), *cf.jobs, func(p string) Repo {
+		return examine(p, fetch, doSync, cfg.NeverPush)
 	})
 	emit(repos, *cf.format)
 	return 0
