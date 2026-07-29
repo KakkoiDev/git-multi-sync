@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -73,6 +74,79 @@ func worktreesOf(dir string) []string {
 		paths = append(paths, p)
 	}
 	return paths
+}
+
+// scanRoot resolves the directory to scan: the flag if given, else the user's home
+// directory.
+//
+// It exists because sync is the only command that writes to a repo, and for a long
+// time it was also the only one that could not be aimed anywhere but $HOME. That
+// combination is backwards, and it had a cost: a test run that set GMS_CONFIG_DIR
+// to a scratch directory still scanned the real home directory and pushed four
+// repos nobody had asked it to. Isolating the config is not isolating the repos.
+//
+// A missing directory is an error rather than an empty result, so a typo or an
+// unmounted volume cannot read as "nothing to sync".
+// It reports whether the root was given explicitly, because that changes what pins
+// mean - see scopePins.
+func scanRoot(flag string) (root string, explicit bool, err error) {
+	if strings.TrimSpace(flag) == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false, fmt.Errorf("cannot determine home directory: %w", err)
+		}
+		return home, false, nil
+	}
+	root = normalize(flag)
+	fi, err := os.Stat(root)
+	if err != nil {
+		return "", true, fmt.Errorf("cannot scan %s: %w", shortPath(root), err)
+	}
+	if !fi.IsDir() {
+		return "", true, fmt.Errorf("cannot scan %s: not a directory", shortPath(root))
+	}
+	return root, true, nil
+}
+
+// scopePins drops pins from outside root, and is only applied when a root was named
+// explicitly.
+//
+// Without it --root would not isolate anything: pins are absolute paths added
+// unconditionally, so `gms sync --root /tmp/scratch` would still push every pinned
+// repo elsewhere on the machine - which is the accident --root exists to prevent.
+//
+// It is deliberately not applied to the default root. There, a pin outside $HOME is
+// the escape hatch it is meant to be: the way to sync a repo on another volume.
+func scopePins(pins []string, root string) []string {
+	var out []string
+	for _, p := range pins {
+		if under(p, root) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// under reports whether path is root or sits below it.
+//
+// Both the raw and the symlink-resolved forms are compared, because
+// EvalSymlinks fails on a path that does not exist and returns it unchanged. A pin
+// naming a repo on an unmounted volume, or one that has since been deleted, would
+// otherwise compare an unresolved path against a resolved root and be dropped even
+// though it is plainly inside it. Matching on either basis cannot wrongly admit a
+// path from outside the root, since neither comparison would succeed.
+func under(path, root string) bool {
+	sep := string(os.PathSeparator)
+	for _, pair := range [2][2]string{
+		{path, root},
+		{canonical(path), canonical(root)},
+	} {
+		p, r := pair[0], pair[1]
+		if p == r || strings.HasPrefix(p, strings.TrimSuffix(r, sep)+sep) {
+			return true
+		}
+	}
+	return false
 }
 
 // canonical resolves symlinks, for comparing a path against one git reported.

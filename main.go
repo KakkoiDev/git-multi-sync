@@ -75,12 +75,14 @@ func cmdRemove(c *command, args []string) int {
 func cmdList(c *command, args []string) int {
 	var skipped, missing, refresh *bool
 	var depth, jobs *int
+	var rootFlag *string
 	if _, code := parseFlags(c, args, func(fs *flag.FlagSet) {
 		skipped = fs.Bool("skipped", false, "list the repos that were excluded, and why")
 		missing = fs.Bool("missing", false, "list account repos that are not on this machine")
 		refresh = fs.Bool("refresh", false, "refetch the GitHub catalog first")
-		depth = fs.Int("depth", defaultMaxDepth, "how far below home to look for repos")
+		depth = fs.Int("depth", defaultMaxDepth, "how far below the root to look for repos")
 		jobs = fs.Int("jobs", 8, "max repos inspected in parallel")
+		rootFlag = fs.String("root", "", "directory to scan (default: your home directory)")
 	}); code != flagsOK {
 		return code
 	}
@@ -89,9 +91,12 @@ func cmdList(c *command, args []string) int {
 	if err != nil {
 		return errf("%v", err)
 	}
-	root, err := os.UserHomeDir()
+	root, explicit, err := scanRoot(*rootFlag)
 	if err != nil {
-		return errf("cannot determine home directory: %v", err)
+		return errf("%v", err)
+	}
+	if explicit {
+		cfg.Pins = scopePins(cfg.Pins, root)
 	}
 	sel, skip, _ := selectRepos(root, cfg, *depth)
 
@@ -172,9 +177,11 @@ func cmdSync(c *command, args []string) int   { return run(c, args, true) }
 func run(c *command, args []string, doSync bool) int {
 	var cf *commonFlags
 	var depth *int
+	var rootFlag *string
 	_, code := parseFlags(c, args, func(fs *flag.FlagSet) {
 		cf = addCommonFlags(fs)
-		depth = fs.Int("depth", defaultMaxDepth, "how far below home to look for repos")
+		depth = fs.Int("depth", defaultMaxDepth, "how far below the root to look for repos")
+		rootFlag = fs.String("root", "", "directory to scan (default: your home directory)")
 	})
 	if code != flagsOK {
 		return code
@@ -184,9 +191,12 @@ func run(c *command, args []string, doSync bool) int {
 	if err != nil {
 		return errf("%v", err)
 	}
-	root, err := os.UserHomeDir()
+	root, explicit, err := scanRoot(*rootFlag)
 	if err != nil {
-		return errf("cannot determine home directory: %v", err)
+		return errf("%v", err)
+	}
+	if explicit {
+		cfg.Pins = scopePins(cfg.Pins, root)
 	}
 
 	sel, _, _ := selectRepos(root, cfg, *depth)

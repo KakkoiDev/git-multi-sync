@@ -379,3 +379,116 @@ func TestElide(t *testing.T) {
 		t.Error("elide should respect its maximum")
 	}
 }
+
+func TestScanRootDefaultsToHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root, explicit, err := scanRoot("")
+	if err != nil || root != home {
+		t.Errorf("scanRoot(\"\") = %q, %v; want %q", root, err, home)
+	}
+	if explicit {
+		t.Error("an unset flag is not an explicit root")
+	}
+}
+
+// TestScanRootRejectsMissingDirectory: an unmounted volume or a typo must not read
+// as "nothing to sync", which is indistinguishable from a healthy empty machine.
+func TestScanRootRejectsMissingDirectory(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "not-there")
+	if _, _, err := scanRoot(missing); err == nil {
+		t.Error("a missing root must be an error, not an empty result")
+	}
+	file := filepath.Join(t.TempDir(), "afile")
+	writeT(t, file, "x")
+	if _, _, err := scanRoot(file); err == nil {
+		t.Error("a file is not a scannable root")
+	}
+}
+
+// TestScopePinsMakesRootActuallyIsolate is the regression fence for a real
+// incident: a test run set GMS_CONFIG_DIR to a scratch directory, believed itself
+// isolated, and pushed four repos in the developer's real home directory. Config
+// isolation is not repo isolation. With an explicit root, a pin outside it must not
+// drag those repos back in.
+func TestScopePinsMakesRootActuallyIsolate(t *testing.T) {
+	scratch := t.TempDir()
+	elsewhere := t.TempDir()
+
+	inside := mkRepo(t, filepath.Join(scratch, "wanted"))
+	outside := mkRepo(t, filepath.Join(elsewhere, "must-not-be-touched"))
+
+	cfg := Config{Pins: []string{inside, outside}}
+	cfg.Pins = scopePins(cfg.Pins, scratch)
+
+	sel, _, _ := selectRepos(scratch, cfg, 10)
+	for _, s := range sel {
+		if canonical(s.Path) == canonical(outside) {
+			t.Fatalf("a pin outside an explicit --root was still selected: %s", s.Path)
+		}
+	}
+	found := false
+	for _, s := range sel {
+		if canonical(s.Path) == canonical(inside) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a pin inside the root should still be selected")
+	}
+}
+
+// TestScopePinsNotAppliedToDefaultRoot: with no --root, a pin outside $HOME is the
+// escape hatch it is meant to be - the way to sync a repo on another volume.
+func TestScopePinsNotAppliedToDefaultRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	outside := mkRepo(t, filepath.Join(t.TempDir(), "other-volume"))
+
+	root, explicit, err := scanRoot("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicit {
+		t.Fatal("precondition: default root must not be explicit")
+	}
+	// The caller only scopes when explicit, so the pin survives.
+	sel, _, _ := selectRepos(root, Config{Pins: []string{outside}}, 10)
+	for _, s := range sel {
+		if canonical(s.Path) == canonical(outside) {
+			return
+		}
+	}
+	t.Error("with the default root, a pin outside $HOME must still be synced")
+}
+
+func TestScopePinsKeepsTheRootItself(t *testing.T) {
+	root := t.TempDir()
+	got := scopePins([]string{root, filepath.Join(root, "sub"), "/somewhere/else"}, root)
+	if len(got) != 2 {
+		t.Errorf("got %v, want the root and its child", got)
+	}
+}
+
+// TestUnderHandlesNonexistentPaths covers the bug that scopePins first shipped
+// with: EvalSymlinks fails on a path that does not exist and returns it unchanged,
+// so a resolved root compared against an unresolved pin dropped pins plainly inside
+// it. A pin naming a repo on an unmounted volume is exactly that case.
+func TestUnderHandlesNonexistentPaths(t *testing.T) {
+	root := t.TempDir() // real, so canonical() resolves it
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{root, true},
+		{filepath.Join(root, "exists-not"), true},
+		{filepath.Join(root, "a", "b", "c", "deep-and-absent"), true},
+		{root + "-sibling", false}, // prefix as a string, but not a parent directory
+		{"/somewhere/else", false},
+		{filepath.Dir(root), false}, // the parent is not under the child
+	} {
+		if got := under(tc.path, root); got != tc.want {
+			t.Errorf("under(%q, %q) = %v, want %v", tc.path, root, got, tc.want)
+		}
+	}
+}

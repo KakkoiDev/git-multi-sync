@@ -286,7 +286,29 @@ swap `claude -p ...` for its equivalent). After it finishes, re-run `gms sync` t
 confirm every repo is clean.
 
 Force the format with `--format human|llm|json` (default `auto` picks `human` on
-a terminal, `llm` when piped). Other flags: `--no-fetch`, `--jobs N`, `--depth N`.
+a terminal, `llm` when piped). Other flags: `--no-fetch`, `--jobs N`, `--depth N`,
+`--root DIR`.
+
+### `--root`: scoping what gets touched
+
+`sync` is the only command that writes to your repos, so it is the one that most
+needs to be aimable. By default it scans your home directory; `--root` points it at
+one tree instead.
+
+```sh
+gms sync                      # your home directory
+gms sync --root ~/work        # only that tree
+gms status --root /tmp/trial  # safe to try anything under here
+```
+
+Naming a root explicitly also **scopes your pins to it**. Pins are absolute paths
+included unconditionally, so without that, `gms sync --root /tmp/trial` would still
+push every pinned repo elsewhere on the machine - which would make the flag useless
+for the one job it exists for. With the default root, a pin outside your home
+directory keeps working: that is how you sync a repo on another volume.
+
+A root that does not exist is an error, not an empty result. An unmounted volume
+must not read as "nothing to sync".
 
 ## Safety model
 
