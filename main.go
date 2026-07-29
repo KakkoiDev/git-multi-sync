@@ -57,10 +57,16 @@ func cmdRemove(c *command, args []string) int {
 		return errf("remove failed: %v", err)
 	}
 	if !removed {
-		fmt.Fprintf(os.Stderr, "not tracked: %s\n", resolved)
+		// Unpinning something that was never pinned used to be the whole story.
+		// Now most repos arrive by discovery, so the useful answer is which verb
+		// the user actually wanted.
+		fmt.Fprintf(os.Stderr, "not pinned: %s\n", shortPath(resolved))
+		if isGitRepo(resolved) {
+			fmt.Fprintf(os.Stderr, "gms found this one by itself. to stop syncing it: gms ignore %s\n", shortPath(resolved))
+		}
 		return 1
 	}
-	fmt.Printf("removed %s\n", resolved)
+	fmt.Printf("unpinned %s\n", shortPath(resolved))
 	return 0
 }
 

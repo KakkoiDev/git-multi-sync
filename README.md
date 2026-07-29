@@ -50,20 +50,62 @@ The `install.sh` route already installs the binary as `gms`, so no alias needed.
 
 ## Configure
 
+**There is nothing to register.** `gms` finds the git repos in your home
+directory by itself, so a repo you clone today is synced on the next run.
+
 ```sh
-gms init                 # creates ~/.git-multi-sync/repos
-gms add ~/code/project   # track a repo (defaults to the current directory)
-gms add .
-gms remove .             # stop tracking a repo (defaults to the current directory)
-gms list                 # show tracked repos and whether each still exists
+gms init                 # optional: writes commented config templates
+gms list                 # what gms will sync
+gms list --skipped       # what it left out, and why
+gms ignore ~/scratch     # leave a tree alone
+gms ignore               # list the patterns, and how many repos each matches
+gms unignore ~/scratch   # undo that
+gms add ~/odd/place      # force one in, overriding any ignore
+gms remove ~/odd/place   # undo that
 ```
 
 `add` and `remove` resolve any path inside a repo to its root, so running them
-from a subdirectory tracks/untracks the whole repo and never creates duplicates.
+from a subdirectory affects the whole repo and never creates duplicates.
 
-`~/.git-multi-sync/repos` is plain text: one absolute path per line, `#` for
-comments, blank lines ignored. Edit it by hand or sync it between machines.
-`remove` preserves your comments and blank lines.
+### The rule
+
+**Clean repo → `gms` synced it. Dirty repo → yours to clean.** That is the whole
+model. There is no per-repo or per-owner policy to learn.
+
+### The three files
+
+All plain text, one entry per line, `#` for comments, blank lines ignored. Every
+one is optional - `gms` works with none of them. Edits preserve your comments.
+
+| file | holds |
+|------|-------|
+| `ignore` | globs for repos to leave alone |
+| `repos` | **pins**: repos always synced, overriding `ignore` |
+| `never-push` | branch names never pushed (behind branches still get pulled) |
+
+Precedence is one line, and pins come last:
+
+```
+pin (repos / gms add)  >  ignore  >  whatever was discovered
+```
+
+That is why `ignore` has no `!` re-include syntax: putting one path back is a
+command, not a config edit. A leading `!` is reported as an error rather than
+being silently treated as a literal.
+
+Patterns are **globs, not regex**: `*` stays inside one path segment, `**` crosses
+segments, and `.` is an ordinary character. They are matched against both `~/short`
+and absolute paths, so a config file shared between machines works on both.
+
+### Sharing config between machines
+
+Point `GMS_CONFIG_DIR` at a directory inside a repo `gms` already syncs, and the
+lists travel with it. No server, no daemon, no hand-copying.
+
+```sh
+# in ~/.zshrc, itself inside ~/dotfiles
+export GMS_CONFIG_DIR="$HOME/dotfiles/gms"
+```
 
 ## Use
 

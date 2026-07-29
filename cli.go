@@ -38,9 +38,11 @@ var commands []*command
 func init() {
 	commands = []*command{
 		{Name: "init", Short: "create ~/.git-multi-sync/repos", Run: cmdInit},
-		{Name: "add", Args: "[path]", Short: "track a repo (default: current directory)", Run: cmdAdd},
-		{Name: "remove", Aliases: []string{"rm"}, Args: "[path]", Short: "stop tracking a repo (default: current directory)", Run: cmdRemove},
-		{Name: "list", Short: "show tracked repos", Run: cmdList},
+		{Name: "add", Args: "[path]", Short: "pin a repo, overriding any ignore (default: current directory)", Run: cmdAdd},
+		{Name: "remove", Aliases: []string{"rm"}, Args: "[path]", Short: "unpin a repo (default: current directory)", Run: cmdRemove},
+		{Name: "ignore", Args: "[path|glob...]", Short: "leave repos alone; with no argument, list the patterns", Run: cmdIgnore},
+		{Name: "unignore", Args: "<path|glob...>", Short: "drop an ignore pattern", Run: cmdUnignore},
+		{Name: "list", Args: "[flags]", Short: "show the repos gms will sync", Run: cmdList},
 		{Name: "status", Args: "[flags]", Short: "fetch and report state of every tracked repo", Run: cmdStatus},
 		{Name: "sync", Args: "[flags]", Short: "ff-pull behind repos, push ahead repos, report the rest", Run: cmdSync},
 		{Name: "doctor", Args: "[dir]", Short: "scan for repos and report what was found and why", Run: cmdDoctor},

@@ -220,10 +220,43 @@ func TestDocsCoverAllCommands(t *testing.T) {
 
 	ref := regexp.MustCompile(`\bgms ([a-z][a-z-]*)`)
 	for i, txt := range texts {
-		for _, m := range ref.FindAllStringSubmatch(txt, -1) {
-			if lookup(m[1]) == nil {
-				t.Errorf("%s references `gms %s`, which is not a command", docs[i], m[1])
+		// Only code is checked. In prose "gms" is the subject of a sentence, so
+		// "what gms will sync" would otherwise read as a reference to a command
+		// named "will".
+		for _, code := range codeSpans(txt) {
+			for _, m := range ref.FindAllStringSubmatch(code, -1) {
+				if lookup(m[1]) == nil {
+					t.Errorf("%s references `gms %s` in a code example, which is not a command", docs[i], m[1])
+				}
 			}
 		}
 	}
+}
+
+// codeSpans returns the fenced-block and inline-code content of a markdown
+// document, which is where a command is actually being named rather than talked
+// about.
+func codeSpans(md string) []string {
+	var out []string
+	inline := regexp.MustCompile("`([^`\n]+)`")
+	fenced := false
+	for _, line := range strings.Split(md, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			fenced = !fenced
+			continue
+		}
+		if fenced {
+			// A trailing shell comment is prose that happens to sit inside a code
+			// fence: "gms list  # what gms will sync" is one command, not two.
+			if i := strings.IndexByte(line, '#'); i >= 0 {
+				line = line[:i]
+			}
+			out = append(out, line)
+			continue
+		}
+		for _, m := range inline.FindAllStringSubmatch(line, -1) {
+			out = append(out, m[1])
+		}
+	}
+	return out
 }
