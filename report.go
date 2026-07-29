@@ -5,9 +5,56 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 )
+
+// severity orders states by how much they need the reader, so the report can be
+// read from the top and abandoned once it stops mattering.
+//
+// no-upstream sits near the bottom deliberately, not because it is unimportant -
+// it is how you find out an agent left you on a branch that exists nowhere else -
+// but because it is a standing condition rather than something that just happened.
+// Putting it above a divergence would bury the thing that blocks syncing.
+//
+// Clean repos come last: they are already counted in the summary line, and their
+// only job in the table is to be skipped.
+func severity(s State) int {
+	switch s {
+	case StateDiverged:
+		return 0 // blocks syncing and only a human can clear it
+	case StateError:
+		return 1
+	case StateMissing:
+		return 2
+	case StateDirty:
+		return 3 // blocks pull as well as push, so it silently stops updating
+	case StateAhead:
+		return 4
+	case StateBehind:
+		return 5
+	case StateDetached:
+		return 6
+	case StateNoUpstream:
+		return 7
+	default:
+		return 8 // StateUpToDate
+	}
+}
+
+// sortForReport orders repos by severity, then by path. Path is the tiebreak so
+// output stays deterministic, and so the order within a group is unchanged from
+// when the whole report was path-sorted.
+func sortForReport(repos []Repo) {
+	sort.SliceStable(repos, func(a, b int) bool {
+		sa, sb := severity(repos[a].State), severity(repos[b].State)
+		if sa != sb {
+			return sa < sb
+		}
+		return repos[a].Path < repos[b].Path
+	})
+}
 
 // isTTY reports whether f is a character device (interactive terminal).
 func isTTY(f *os.File) bool {
@@ -217,6 +264,9 @@ func summarize(repos []Repo) string {
 // TTY, or (when piped) the human summary to stderr and the LLM block to stdout so
 // `gms sync | claude -p` receives only actionable conflict prompts.
 func emit(repos []Repo, format string) {
+	// Sorted once here so every format agrees. writeLLM is unaffected: it only
+	// emits diverged repos, which share a severity and so keep their path order.
+	sortForReport(repos)
 	if format == "auto" {
 		if isTTY(os.Stdout) {
 			format = "human"

@@ -222,6 +222,23 @@ A **dirty** repo blocks both pull and push, so one left permanently dirty quietl
 stops updating. That is why `gms` keeps reporting it rather than letting you silence
 it: an ignore is keyed on a path, outlives the reason, and hides the pull too.
 
+### Reading order
+
+Rows are ordered by how much they need you, so the report can be read from the top
+and abandoned once it stops mattering:
+
+```
+DIVERGED -> ERROR -> MISSING -> DIRTY -> ahead -> behind -> detached -> no upstream -> clean
+```
+
+`no upstream` sits near the bottom on purpose, and it is not filler. It is how you
+find out an agent left you checked out on a branch that exists nowhere else, with
+work not yet merged. But it is a standing condition rather than something that just
+happened, so it must not push a divergence off the top of the screen. Clean repos
+come last; they are already counted in the summary line.
+
+Within a group, rows are ordered by path, so two runs never disagree.
+
 ### Resolve conflicts with an LLM
 
 When stdout is **piped**, the human summary goes to **stderr** (still visible in
