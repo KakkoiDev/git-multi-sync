@@ -1,7 +1,8 @@
 # git-multi-sync (`gms`)
 
-Keep many git repos in sync across machines with one command, and hand merge
-conflicts to an LLM by piping the output.
+Keep every git repo on your machine in sync with one command, and hand merge
+conflicts to an LLM by piping the output. Nothing to register: `gms` finds the
+repos itself.
 
 ## Why
 
@@ -11,6 +12,11 @@ still unpushed on the desktop. That is a **visibility + reliable-push** problem,
 not a merge problem. `gms` makes the state of every repo visible and brings the
 clean ones in line with origin automatically. It never auto-resolves conflicts;
 it describes them so an LLM (or you) can fix them.
+
+The reason it discovers repos rather than tracking a list: a list you maintain by
+hand is a list you forget to add to, and the repos missing from it are exactly the
+ones nobody is watching. A tool for finding stranded work cannot depend on you
+remembering to enrol the place the work stranded.
 
 ## Install
 
@@ -208,7 +214,7 @@ swap `claude -p ...` for its equivalent). After it finishes, re-run `gms sync` t
 confirm every repo is clean.
 
 Force the format with `--format human|llm|json` (default `auto` picks `human` on
-a terminal, `llm` when piped). Other flags: `--no-fetch`, `--jobs N`.
+a terminal, `llm` when piped). Other flags: `--no-fetch`, `--jobs N`, `--depth N`.
 
 ## Safety model
 
@@ -217,13 +223,23 @@ a terminal, `llm` when piped). Other flags: `--no-fetch`, `--jobs N`.
 1. `--force` push (any form),
 2. act on a dirty worktree,
 3. merge, rebase, or auto-resolve a conflict,
-4. push a diverged branch.
+4. push a diverged branch,
+5. push a branch listed in `never-push`.
 
 Pulls are always `--ff-only`. Diverged repos are described, never modified. All
 git calls run with `GIT_TERMINAL_PROMPT=0` so a missing credential fails fast
 instead of hanging the run. A failed fetch (e.g. offline) does not abort the run;
 the repo is flagged "fetch failed (stale?)" and classified against last-known
 remote refs.
+
+Whenever `gms` declines to push, it says which repo and why. A repo that quietly
+stopped pushing is indistinguishable from one that is in sync, which is the exact
+failure this tool exists to catch.
+
+Discovering repos does not widen what gets pushed. A push only happens when a
+branch is **clean and ahead**, so a clone you only read from is never a candidate -
+you would have to have committed to it. If you did, and you have no write access,
+the push fails loudly and nothing is damaged.
 
 ## Make it a habit
 
@@ -234,6 +250,15 @@ on a schedule or shell hook so origin stays canonical:
 # crontab: sync every 30 minutes
 */30 * * * * /Users/you/bin/gms sync >/dev/null 2>&1
 ```
+
+Two things to know before scheduling it, since discovery makes the set much larger
+than a hand-kept list:
+
+- **Run `gms list` first** and see what is in scope. Add `ignore` patterns for
+  scratch directories before a scheduled job starts reporting on them.
+- **A scheduled run will push any clean, ahead branch it finds**, including in work
+  repos, which fires their CI unattended. If that matters, put the branch in
+  `never-push` or the repo in `ignore`.
 
 ## Agent skill
 
