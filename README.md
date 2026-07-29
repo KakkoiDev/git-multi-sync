@@ -323,9 +323,35 @@ For other agents (e.g. pi), point their skill loader at the same directory.
 ## Develop
 
 ```sh
-go test ./...    # unit table tests for classify() + git integration harness
+go test ./...    # pure table tests, plus a git integration harness (no network)
 go vet ./...
 ```
+
+### Run your working copy
+
+Build in the repo and symlink both names onto `PATH`, so `gms` is whatever you last
+built and there is no second copy to forget to update. `/gms` is gitignored.
+
+```sh
+go build -o ./gms .
+ln -sf "$PWD/gms" ~/.local/bin/gms
+ln -sf "$PWD/gms" ~/.local/bin/git-multi-sync   # the shorter name is often an alias
+```
+
+Both names are worth linking: `gms` is commonly a shell alias for
+`git-multi-sync`, and an alias is not visible to scripts, cron, or an agent. Link
+only one and it works when you type it and fails when something else runs it.
+
+Check nothing older is shadowing the symlink, since `go install` puts a real binary
+in `go env GOPATH`/bin:
+
+```sh
+type -a gms
+type -a git-multi-sync
+```
+
+Re-run `go build -o ./gms .` after any change - the symlinks point at the binary,
+not at the source.
 
 ## License
 
