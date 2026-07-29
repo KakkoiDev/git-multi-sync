@@ -7,101 +7,71 @@ import (
 	"text/tabwriter"
 )
 
-const usageText = `git-multi-sync (gms) - keep many git repos in sync across machines
+func main() { os.Exit(dispatch(os.Args[1:])) }
 
-Usage:
-  gms init              create ~/.git-multi-sync/repos
-  gms add [path]        track a repo (default: current directory)
-  gms remove [path]     stop tracking a repo (default: current directory)
-  gms list              show tracked repos
-  gms status [flags]    fetch and report state of every tracked repo
-  gms sync   [flags]    ff-pull behind repos, push ahead repos, report the rest
-  gms help              show this message
-
-Flags (status, sync):
-  --format auto|human|llm|json   output format (default auto)
-  --no-fetch                     skip 'git fetch'
-  --jobs N                       max repos processed in parallel (default 8)
-
-sync is safe by default: it only fast-forward pulls and pushes clean repos.
-Diverged repos are never auto-merged; they are described for resolution, e.g.
-
-  gms sync | claude -p
-
-When stdout is piped, the human summary goes to stderr and only the resolution
-prompt for diverged repos goes to stdout.`
-
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Println(usageText)
-		return
+// pathArg returns the first positional argument, defaulting to the current
+// directory so `gms add` and `gms remove` work with no arguments.
+func pathArg(args []string) string {
+	if len(args) > 0 {
+		return args[0]
 	}
-	switch os.Args[1] {
-	case "init":
-		cmdInit()
-	case "add":
-		cmdAdd(os.Args[2:])
-	case "remove", "rm":
-		cmdRemove(os.Args[2:])
-	case "list":
-		cmdList()
-	case "status":
-		cmdStatus(os.Args[2:])
-	case "sync":
-		cmdSync(os.Args[2:])
-	case "help", "-h", "--help":
-		fmt.Println(usageText)
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s\n", os.Args[1], usageText)
-		os.Exit(2)
-	}
+	return "."
 }
 
-func cmdInit() {
+func cmdInit(c *command, args []string) int {
+	if _, code := parseFlags(c, args, nil); code != flagsOK {
+		return code
+	}
 	rf, err := initConfig()
 	if err != nil {
-		fatal("init failed: %v", err)
+		return errf("init failed: %v", err)
 	}
 	fmt.Printf("config ready: %s\n", rf)
 	fmt.Println("add repos with `gms add <path>` or by editing that file.")
+	return 0
 }
 
-func cmdAdd(args []string) {
-	target := "."
-	if len(args) > 0 {
-		target = args[0]
+func cmdAdd(c *command, args []string) int {
+	rest, code := parseFlags(c, args, nil)
+	if code != flagsOK {
+		return code
 	}
-	abs, err := addRepo(target)
+	abs, err := addRepo(pathArg(rest))
 	if err != nil {
-		fatal("add failed: %v", err)
+		return errf("add failed: %v", err)
 	}
 	fmt.Printf("tracking %s\n", abs)
+	return 0
 }
 
-func cmdRemove(args []string) {
-	target := "."
-	if len(args) > 0 {
-		target = args[0]
+func cmdRemove(c *command, args []string) int {
+	rest, code := parseFlags(c, args, nil)
+	if code != flagsOK {
+		return code
 	}
-	resolved, removed, err := removeRepo(target)
+	resolved, removed, err := removeRepo(pathArg(rest))
 	if err != nil {
-		fatal("remove failed: %v", err)
+		return errf("remove failed: %v", err)
 	}
 	if !removed {
 		fmt.Fprintf(os.Stderr, "not tracked: %s\n", resolved)
-		os.Exit(1)
+		return 1
 	}
 	fmt.Printf("removed %s\n", resolved)
+	return 0
 }
 
-func cmdList() {
+func cmdList(c *command, args []string) int {
+	if _, code := parseFlags(c, args, nil); code != flagsOK {
+		return code
+	}
 	paths, err := loadRepos()
 	if err != nil {
-		fatal("cannot read config: %v (run `gms init`)", err)
+		return errf("cannot read config: %v (run `gms init`)", err)
 	}
 	if len(paths) == 0 {
 		fmt.Println("no repos tracked. add one with `gms add <path>`.")
-		return
+		return 0
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	for _, p := range paths {
@@ -116,36 +86,34 @@ func cmdList() {
 		fmt.Fprintf(tw, "%s\t%s\n", shortPath(p), mark)
 	}
 	tw.Flush()
+	return 0
 }
 
-func cmdStatus(args []string) { run(args, false) }
-func cmdSync(args []string)   { run(args, true) }
+func cmdStatus(c *command, args []string) int { return run(c, args, false) }
+func cmdSync(c *command, args []string) int   { return run(c, args, true) }
 
 // run is the shared body of status and sync: parse flags, load repos, fan out,
 // emit. doSync toggles whether the safe actions are performed.
-func run(args []string, doSync bool) {
-	name := "status"
-	if doSync {
-		name = "sync"
+func run(c *command, args []string, doSync bool) int {
+	var cf *commonFlags
+	_, code := parseFlags(c, args, func(fs *flag.FlagSet) { cf = addCommonFlags(fs) })
+	if code != flagsOK {
+		return code
 	}
-	fs := flag.NewFlagSet(name, flag.ExitOnError)
-	format := fs.String("format", "auto", "output format: auto|human|llm|json")
-	noFetch := fs.Bool("no-fetch", false, "skip git fetch")
-	jobs := fs.Int("jobs", 8, "max parallel repos")
-	fs.Parse(args)
 
 	paths, err := loadRepos()
 	if err != nil {
-		fatal("cannot read config: %v (run `gms init`)", err)
+		return errf("cannot read config: %v (run `gms init`)", err)
 	}
 	if len(paths) == 0 {
 		fmt.Fprintln(os.Stderr, "no repos tracked. add one with `gms add <path>`.")
-		return
+		return 0
 	}
 
-	fetch := !*noFetch
-	repos := fanOut(paths, *jobs, func(p string) Repo {
+	fetch := !*cf.noFetch
+	repos := fanOut(paths, *cf.jobs, func(p string) Repo {
 		return examine(p, fetch, doSync)
 	})
-	emit(repos, *format)
+	emit(repos, *cf.format)
+	return 0
 }
