@@ -28,11 +28,25 @@ func firstLine(s string) string {
 }
 
 // plural renders a count with a naive pluralized unit ("1 commit", "2 commits").
+// Only for words: a unit like MB does not take an s.
 func plural(n int, unit string) string {
 	if n == 1 {
 		return "1 " + unit
 	}
 	return fmt.Sprintf("%d %ss", n, unit)
+}
+
+// humanSize renders a size given in kilobytes. Repos range from a few KB to a
+// gigabyte, and rounding a 300 KB repo to "0 MB" tells the reader nothing.
+func humanSize(kb int) string {
+	switch {
+	case kb >= 1024*1024:
+		return fmt.Sprintf("%.1f GB", float64(kb)/(1024*1024))
+	case kb >= 1024:
+		return fmt.Sprintf("%d MB", kb/1024)
+	default:
+		return fmt.Sprintf("%d KB", kb)
+	}
 }
 
 // errf prints to stderr and returns exit code 2 (usage/config error). Commands

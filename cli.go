@@ -45,6 +45,7 @@ func init() {
 		{Name: "list", Args: "[flags]", Short: "show the repos gms will sync", Run: cmdList},
 		{Name: "status", Args: "[flags]", Short: "fetch and report state of every tracked repo", Run: cmdStatus},
 		{Name: "sync", Args: "[flags]", Short: "ff-pull behind repos, push ahead repos, report the rest", Run: cmdSync},
+		{Name: "clone", Args: "<name|owner/name|all>", Short: "clone repos from your GitHub account", Run: cmdClone},
 		{Name: "doctor", Args: "[dir]", Short: "scan for repos and report what was found and why", Run: cmdDoctor},
 		{Name: "help", Short: "show this message", Run: cmdHelp},
 	}

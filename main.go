@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"text/tabwriter"
 )
 
@@ -71,11 +73,14 @@ func cmdRemove(c *command, args []string) int {
 }
 
 func cmdList(c *command, args []string) int {
-	var skipped *bool
-	var depth *int
+	var skipped, missing, refresh *bool
+	var depth, jobs *int
 	if _, code := parseFlags(c, args, func(fs *flag.FlagSet) {
 		skipped = fs.Bool("skipped", false, "list the repos that were excluded, and why")
+		missing = fs.Bool("missing", false, "list account repos that are not on this machine")
+		refresh = fs.Bool("refresh", false, "refetch the GitHub catalog first")
 		depth = fs.Int("depth", defaultMaxDepth, "how far below home to look for repos")
+		jobs = fs.Int("jobs", 8, "max repos inspected in parallel")
 	}); code != flagsOK {
 		return code
 	}
@@ -99,6 +104,39 @@ func cmdList(c *command, args []string) int {
 		fmt.Printf("%s skipped\n", plural(len(skip), "repo"))
 		return 0
 	}
+
+	// The catalog is optional: without gh, without a network, or on a self-hosted
+	// setup, the local half of this listing is unchanged and only the not-cloned
+	// tally goes away.
+	var notHere []RemoteRepo
+	catalogNote := ""
+	if cat, at, warning, err := catalog(*refresh); err == nil {
+		if warning != "" {
+			catalogNote = warning
+		} else {
+			catalogNote = "catalog fetched " + humanAge(at)
+		}
+		have := localIDs(sel, *jobs)
+		for _, r := range cat {
+			if _, ok := have[strings.ToLower(r.FullName)]; !ok && !r.Archived {
+				notHere = append(notHere, r)
+			}
+		}
+		sort.Slice(notHere, func(a, b int) bool { return notHere[a].FullName < notHere[b].FullName })
+	} else if *refresh || *missing {
+		// Only complain when the catalog was actually asked for.
+		return errf("%v", err)
+	}
+
+	if *missing {
+		for _, r := range notHere {
+			fmt.Fprintf(tw, "%s\t%s\n", r.FullName, humanSize(r.SizeKB))
+		}
+		tw.Flush()
+		fmt.Printf("%s on the account, not on this machine (gms clone <name>)\n", plural(len(notHere), "repo"))
+		return 0
+	}
+
 	for _, s := range sel {
 		note := s.Kind.String()
 		if s.Pinned {
@@ -115,7 +153,14 @@ func cmdList(c *command, args []string) int {
 		fmt.Fprintf(tw, "%s\t%s\t%s\n", elide(shortPath(s.Path), pathWidth), note, mark)
 	}
 	tw.Flush()
+
 	fmt.Printf("%s synced, %d skipped (gms list --skipped)\n", plural(len(sel), "repo"), len(skip))
+	if len(notHere) > 0 {
+		fmt.Printf("%s on your GitHub account are not here (gms list --missing)\n", plural(len(notHere), "repo"))
+	}
+	if catalogNote != "" {
+		fmt.Fprintf(os.Stderr, "gms: %s\n", catalogNote)
+	}
 	return 0
 }
 

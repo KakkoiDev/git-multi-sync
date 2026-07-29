@@ -115,6 +115,30 @@ gms sync                 # ff-pull behind repos, push ahead repos, report the re
 gms doctor               # scan for repos and report what was found, and why
 ```
 
+### Filling a new machine
+
+`clone` is the one part that talks to GitHub. It needs the [GitHub CLI](https://cli.github.com)
+authenticated; nothing else does.
+
+```sh
+gms list --missing            # on your account, not on this machine
+gms clone kanji-roots         # by name, across all your owners
+gms clone meetsmore/meetsone  # or fully qualified, when a name is ambiguous
+gms clone all                 # everything, after confirming the count and size
+gms clone all --yes           # skip the prompt
+```
+
+New clones land wherever most of your repos already are - no configuration, and no
+new layout imposed. Override with `--into`.
+
+"Already here" is decided by the repo's **remote identity**, not its directory
+name, so a repo checked out under a different name is recognised rather than cloned
+twice. Archived repos are excluded from `all` unless you pass `--include-archived`.
+
+The account listing is cached and never expires. A refresh that fails while a cache
+exists is a warning with the cache's age, so `gms list` keeps working offline. Only
+`--refresh` and `clone` ever hit the network.
+
 ### `doctor`: what is on this machine
 
 `doctor` walks your home directory for git repos and reports what it found without
