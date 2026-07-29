@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"text/tabwriter"
 )
 
@@ -110,6 +111,9 @@ func run(c *command, args []string, doSync bool) int {
 		return 0
 	}
 
+	// fanOut returns results index-aligned with its input, so sorting the paths
+	// here is what makes the report deterministic.
+	sort.Strings(paths)
 	fetch := !*cf.noFetch
 	repos := fanOut(paths, *cf.jobs, func(p string) Repo {
 		return examine(p, fetch, doSync)

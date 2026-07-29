@@ -1,22 +1,22 @@
 package main
 
-import (
-	"sort"
-	"sync"
-)
+import "sync"
 
-// fanOut runs work(path) for every path with bounded concurrency and returns the
-// results sorted by path for deterministic output. Each goroutine writes a
-// distinct index, so no locking is needed around the results slice.
-func fanOut(paths []string, limit int, work func(string) Repo) []Repo {
+// fanOut runs work(item) for every item with bounded concurrency, returning the
+// results index-aligned with items. Each goroutine writes a distinct index, so no
+// locking is needed around the results slice.
+//
+// Ordering is the caller's job: sort the input, not the output. Sorting results
+// here would need to know a field of T, and callers already have a sorted list.
+func fanOut[T any](items []string, limit int, work func(string) T) []T {
 	if limit < 1 {
 		limit = 1
 	}
-	results := make([]Repo, len(paths))
+	results := make([]T, len(items))
 	sem := make(chan struct{}, limit)
 	var wg sync.WaitGroup
 
-	for i, p := range paths {
+	for i, p := range items {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(i int, p string) {
@@ -26,7 +26,5 @@ func fanOut(paths []string, limit int, work func(string) Repo) []Repo {
 		}(i, p)
 	}
 	wg.Wait()
-
-	sort.Slice(results, func(a, b int) bool { return results[a].Path < results[b].Path })
 	return results
 }

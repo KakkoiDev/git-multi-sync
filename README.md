@@ -70,7 +70,29 @@ comments, blank lines ignored. Edit it by hand or sync it between machines.
 ```sh
 gms status               # fetch and report the state of every repo
 gms sync                 # ff-pull behind repos, push ahead repos, report the rest
+gms doctor               # scan for repos and report what was found, and why
 ```
+
+### `doctor`: what is on this machine
+
+`doctor` walks your home directory for git repos and reports what it found without
+touching anything. It stops at each repo root instead of descending into it, so a
+checkout holding hundreds of thousands of files costs one directory read.
+
+```sh
+gms doctor                    # tally: repos found, worktrees, owners
+gms doctor --all              # one line per repo, with its push target
+gms doctor --depth 6          # look deeper than the default 4
+gms doctor ~/work             # scan somewhere other than $HOME
+```
+
+Repos are keyed by **where `git push` would actually send commits**, not by
+`origin`. In a fork checkout those differ: `origin` is often the upstream project
+while the branch pushes to your own fork.
+
+The scan is bounded by depth (default 4) and by a directory budget, and it reports
+what it skipped for either reason - a repo that was not looked for should never be
+confused with a repo that is in sync.
 
 ### What `sync` does, per repo
 
