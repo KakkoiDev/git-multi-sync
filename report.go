@@ -7,7 +7,7 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"text/tabwriter"
+	"unicode/utf8"
 )
 
 // severity orders states by how much they need the reader, so the report can be
@@ -162,14 +162,106 @@ func elide(s string, max int) string {
 	return string(r[:start]) + "…" + string(r[len(r)-end:])
 }
 
-func writeHuman(w io.Writer, repos []Repo) {
-	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	for _, r := range repos {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
-			elide(shortPath(r.Path), pathWidth), elide(r.Branch, branchWidth),
-			stateLabel(r.State), detail(r))
+// ANSI colours for the state column.
+const (
+	cReset     = "\033[0m"
+	cRed       = "\033[31m"
+	cRedBold   = "\033[1;31m"
+	cYellow    = "\033[33m"
+	cCyan      = "\033[36m"
+	cDim       = "\033[2m"
+	cDimYellow = "\033[2;33m"
+)
+
+// stateColour maps a repo to the colour of its state cell, mirroring the severity
+// order so colour reinforces the reading order instead of adding a second,
+// competing signal.
+//
+// Colour is never the only carrier of meaning: every cell still spells out its
+// state, so nothing is lost when colour is off, when output is piped or logged, or
+// when the reader cannot distinguish the hues.
+//
+// no-upstream is the one state that splits. With a remote it is one `git push -u`
+// from being safe; without one the commits exist nowhere else at all, which is the
+// worst state in the report and is coloured accordingly.
+func stateColour(r Repo) string {
+	switch r.State {
+	case StateDiverged:
+		return cRedBold
+	case StateError, StateMissing:
+		return cRed
+	case StateDirty:
+		return cYellow
+	case StateAhead, StateBehind:
+		return cCyan
+	case StateDetached:
+		return cDimYellow
+	case StateNoUpstream:
+		if r.HasRemote {
+			return cYellow
+		}
+		return cRed
+	default:
+		return cDim // clean
 	}
-	tw.Flush()
+}
+
+// wantColour reports whether to emit ANSI codes: only to a terminal, and never
+// when NO_COLOR is set (https://no-color.org). Piping to a pager therefore loses
+// colour, which is the safe default - the alternative is escape codes turning up
+// in a log file or an LLM prompt.
+func wantColour(f *os.File) bool {
+	if _, set := os.LookupEnv("NO_COLOR"); set {
+		return false
+	}
+	return isTTY(f)
+}
+
+// padTo returns s padded with spaces to w visible columns, optionally wrapped in a
+// colour. The colour is applied after the width is measured, which is the whole
+// reason this exists rather than text/tabwriter: tabwriter measures a cell in
+// bytes and has no way to discount escape sequences, so a coloured cell shifts
+// every following column by the length of its escape codes. tabwriter.Escape does
+// not help - it hides tabs and newlines from parsing, not width from measurement.
+func padTo(s string, w int, colour string) string {
+	pad := w - utf8.RuneCountInString(s)
+	if pad < 0 {
+		pad = 0
+	}
+	if colour != "" {
+		s = colour + s + cReset
+	}
+	return s + strings.Repeat(" ", pad)
+}
+
+func writeHuman(w io.Writer, repos []Repo, colour bool) {
+	type line struct{ path, branch, state, detail, colour string }
+	lines := make([]line, 0, len(repos))
+	var pathW, branchW, stateW int
+	for _, r := range repos {
+		l := line{
+			path:   elide(shortPath(r.Path), pathWidth),
+			branch: elide(r.Branch, branchWidth),
+			state:  stateLabel(r.State),
+			detail: detail(r),
+		}
+		if colour {
+			l.colour = stateColour(r)
+		}
+		lines = append(lines, l)
+		pathW = max(pathW, utf8.RuneCountInString(l.path))
+		branchW = max(branchW, utf8.RuneCountInString(l.branch))
+		stateW = max(stateW, utf8.RuneCountInString(l.state))
+	}
+
+	const gap = 2
+	for _, l := range lines {
+		row := padTo(l.path, pathW+gap, "") +
+			padTo(l.branch, branchW+gap, "") +
+			padTo(l.state, stateW+gap, l.colour) +
+			l.detail
+		fmt.Fprintln(w, strings.TrimRight(row, " "))
+	}
 }
 
 // writeLLM writes the resolution prompt for diverged repos and reports whether
@@ -276,10 +368,13 @@ func emit(repos []Repo, format string) {
 	}
 	switch format {
 	case "human":
-		writeHuman(os.Stdout, repos)
+		writeHuman(os.Stdout, repos, wantColour(os.Stdout))
 		fmt.Fprintln(os.Stdout, summarize(repos))
 	case "llm":
-		writeHuman(os.Stderr, repos)
+		// The human table goes to stderr here so stdout carries only the
+		// resolution block. Colour follows stderr, not stdout, since that is
+		// where a person is looking.
+		writeHuman(os.Stderr, repos, wantColour(os.Stderr))
 		fmt.Fprintln(os.Stderr, summarize(repos))
 		if !writeLLM(os.Stdout, repos) {
 			fmt.Fprintln(os.Stderr, "Nothing to resolve.")

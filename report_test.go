@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // TestSortForReportPutsWorkFirst pins the reading order: the report is meant to be
@@ -123,14 +125,142 @@ func TestEmitSortsEveryFormat(t *testing.T) {
 		{Path: "/a", State: StateDiverged},
 	}
 	var buf bytes.Buffer
-	writeHuman(&buf, repos) // unsorted, to show the test would notice
+	writeHuman(&buf, repos, false) // unsorted, to show the test would notice
 	if strings.Index(buf.String(), "/z") > strings.Index(buf.String(), "/a") {
 		t.Fatal("precondition: input should start unsorted")
 	}
 	sortForReport(repos)
 	buf.Reset()
-	writeHuman(&buf, repos)
+	writeHuman(&buf, repos, false)
 	if strings.Index(buf.String(), "/a") > strings.Index(buf.String(), "/z") {
 		t.Error("after sorting, the diverged repo should come first")
+	}
+}
+
+// TestPadToMeasuresVisibleWidth is the bug that motivated dropping tabwriter:
+// measured, an inline escape sequence shifted every following column by 9
+// characters, and tabwriter.Escape did not help because it hides tabs and newlines
+// from parsing, not width from measurement.
+func TestPadToMeasuresVisibleWidth(t *testing.T) {
+	plain := padTo("clean", 12, "")
+	coloured := padTo("clean", 12, cDim)
+
+	if len(plain) != 12 {
+		t.Errorf("plain width = %d, want 12", len(plain))
+	}
+	// The coloured cell is longer in bytes but identical once codes are stripped.
+	if strip(coloured) != plain {
+		t.Errorf("stripped colour = %q, want %q", strip(coloured), plain)
+	}
+	if !strings.HasPrefix(coloured, cDim) || !strings.Contains(coloured, cReset) {
+		t.Errorf("colour not applied: %q", coloured)
+	}
+	// Multi-byte content must be measured in runes, not bytes.
+	if got := strip(padTo("héllo…", 10, cRed)); utf8.RuneCountInString(got) != 10 {
+		t.Errorf("multibyte width = %d runes, want 10", utf8.RuneCountInString(got))
+	}
+	// Content wider than the column is never truncated by padding.
+	if got := padTo("much-too-long", 4, ""); got != "much-too-long" {
+		t.Errorf("over-wide cell = %q, should be returned intact", got)
+	}
+}
+
+func strip(s string) string {
+	for _, c := range []string{cReset, cRed, cRedBold, cYellow, cCyan, cDim, cDimYellow} {
+		s = strings.ReplaceAll(s, c, "")
+	}
+	return s
+}
+
+// TestWriteHumanColumnsAlignWithColour is the regression fence for the tabwriter
+// problem: with colour on, every row's columns must still start at the same
+// visible offset.
+func TestWriteHumanColumnsAlignWithColour(t *testing.T) {
+	repos := []Repo{
+		{Path: "/short", Branch: "main", State: StateDiverged, Ahead: 1, Behind: 1},
+		{Path: "/a/much/longer/path/here", Branch: "feature/long-branch-name", State: StateUpToDate},
+		{Path: "/mid/path", Branch: "wip", State: StateNoUpstream},
+	}
+	var plain, coloured bytes.Buffer
+	writeHuman(&plain, repos, false)
+	writeHuman(&coloured, repos, true)
+
+	// Stripping the codes must reproduce the uncoloured table exactly.
+	if strip(coloured.String()) != plain.String() {
+		t.Errorf("colour changed the layout:\n--- plain ---\n%s\n--- stripped ---\n%s",
+			plain.String(), strip(coloured.String()))
+	}
+	// And the state column must genuinely start at one offset for every row.
+	var offsets []int
+	for _, l := range strings.Split(strings.TrimRight(strip(coloured.String()), "\n"), "\n") {
+		for _, label := range []string{"DIVERGED", "clean", "no-upstream"} {
+			if i := strings.Index(l, label); i >= 0 {
+				offsets = append(offsets, i)
+			}
+		}
+	}
+	if len(offsets) != 3 {
+		t.Fatalf("expected one state per row, found %v", offsets)
+	}
+	for _, o := range offsets[1:] {
+		if o != offsets[0] {
+			t.Errorf("state column offsets differ: %v - colour broke alignment", offsets)
+		}
+	}
+}
+
+// TestColourNeverLeaksIntoMachineOutput: the resolution block is piped into an LLM
+// and the JSON is parsed by tools. An escape sequence in either is corruption.
+func TestColourNeverLeaksIntoMachineOutput(t *testing.T) {
+	repos := []Repo{
+		{Path: "/a", Branch: "main", State: StateDiverged, Ahead: 1, Behind: 2, Conflict: []string{"f.txt"}},
+		{Path: "/b", Branch: "wip", State: StateNoUpstream},
+	}
+	var llm, js bytes.Buffer
+	writeLLM(&llm, repos)
+	writeJSON(&js, repos)
+
+	for name, out := range map[string]string{"writeLLM": llm.String(), "writeJSON": js.String()} {
+		if strings.Contains(out, "\033") {
+			t.Errorf("%s emitted an ANSI escape: %q", name, out)
+		}
+	}
+}
+
+// TestWantColourRespectsNoColor covers the https://no-color.org convention. The TTY
+// case cannot be exercised here because a test's stdout is a pipe, which is itself
+// the behaviour that keeps escapes out of logs.
+func TestWantColourRespectsNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	if wantColour(os.Stdout) {
+		t.Error("NO_COLOR must disable colour")
+	}
+	// Even set to empty, per the convention: presence is what counts.
+	t.Setenv("NO_COLOR", "")
+	if wantColour(os.Stdout) {
+		t.Error("NO_COLOR present but empty must still disable colour")
+	}
+}
+
+// TestStateColourCoversEveryState guards against a new state defaulting to the
+// dim "nothing to see" colour, which would visually hide it.
+func TestStateColourCoversEveryState(t *testing.T) {
+	for _, s := range []State{
+		StateMissing, StateError, StateDetached, StateNoUpstream,
+		StateDirty, StateUpToDate, StateBehind, StateAhead, StateDiverged,
+	} {
+		got := stateColour(Repo{State: s})
+		if got == "" {
+			t.Errorf("%s has no colour", stateLabel(s))
+		}
+		if s != StateUpToDate && got == cDim {
+			t.Errorf("%s is dim, which reads as 'ignore me'", stateLabel(s))
+		}
+	}
+	// The split that carries real meaning: nowhere-else is worse than one-push-away.
+	nowhere := stateColour(Repo{State: StateNoUpstream, HasRemote: false})
+	onePush := stateColour(Repo{State: StateNoUpstream, HasRemote: true})
+	if nowhere == onePush {
+		t.Error("no-upstream with and without a remote must look different")
 	}
 }

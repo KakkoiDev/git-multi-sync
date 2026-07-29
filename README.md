@@ -239,6 +239,16 @@ come last; they are already counted in the summary line.
 
 Within a group, rows are ordered by path, so two runs never disagree.
 
+On a terminal the state column is coloured to match that order - red for blocked,
+yellow for needs-you, cyan for what `gms` handled, dim for clean. `no upstream`
+splits: **yellow** when a remote exists and one `git push -u` would fix it, **red**
+when there is no remote and the commits exist nowhere else at all.
+
+Colour is only ever emphasis. Every row still spells its state out in text, so
+nothing is lost when it is off - and it is off whenever output is not a terminal, or
+when [`NO_COLOR`](https://no-color.org) is set. That keeps escape sequences out of
+log files and out of the prompt when you pipe to an LLM.
+
 ### Resolve conflicts with an LLM
 
 When stdout is **piped**, the human summary goes to **stderr** (still visible in
